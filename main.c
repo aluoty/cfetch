@@ -2,58 +2,51 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Color tokens for our layout
 #define COLOR_CYAN    "\033[1;36m"
 #define COLOR_DEFAULT "\033[0m"
 
-void print_memory() {
-    FILE *file = fopen("/proc/meminfo", "r");
-    if (!file) return;
-
-    char line[128];
-    long total_mem = 0, avail_mem = 0;
-
-    while (fgets(line, sizeof(line), file)) {
-        if (strncmp(line, "MemTotal:", 9) == 0) {
-            sscanf(line, "MemTotal: %ld", &total_mem);
-        } else if (strncmp(line, "MemAvailable:", 13) == 0) {
-            sscanf(line, "MemAvailable: %ld", &avail_mem);
+// Functions to parse hardware and system metrics into strings
+void get_kernel(char *buffer, size_t size) {
+    FILE *file = fopen("/proc/sys/kernel/osrelease", "r");
+    if (file != NULL) {
+        if (fgets(buffer, size, file) != NULL) {
+            buffer[strcspn(buffer, "\n")] = 0; // Strip newline
         }
-        // Stop reading once we have both to save CPU cycles
-        if (total_mem && avail_mem) break;
+        fclose(file);
+    } else {
+        strncpy(buffer, "Unknown", size);
     }
-    fclose(file);
-
-    long used_mem = (total_mem - avail_mem) / 1024;
-    printf("Memory:  %ldMB / %ldMB\n", used_mem, total_mem / 1024);
 }
 
-void print_uptime() {
+void get_uptime(char *buffer, size_t size) {
     FILE *file = fopen("/proc/uptime", "r");
-    if (!file) return;
-
+    if (!file) {
+        strncpy(buffer, "Unknown", size);
+        return;
+    }
     double up_seconds;
     if (fscanf(file, "%lf", &up_seconds) == 1) {
         int hours = (int)up_seconds / 3600;
         int minutes = ((int)up_seconds % 3600) / 60;
-        printf("Uptime:  %dh %dm\n", hours, minutes);
+        snprintf(buffer, size, "%dh %dm", hours, minutes);
     }
     fclose(file);
 }
 
-void print_cpu() {
+void get_cpu(char *buffer, size_t size) {
     FILE *file = fopen("/proc/cpuinfo", "r");
-    if (!file) return;
-
+    if (!file) {
+        strncpy(buffer, "Unknown", size);
+        return;
+    }
     char line[128];
     while (fgets(line, sizeof(line), file)) {
         if (strncmp(line, "model name", 10) == 0) {
-            // Find the colon separating the key and the value
             char *cpu_name = strchr(line, ':');
             if (cpu_name) {
-                cpu_name += 2; // Skip the colon and the space next to it
-                cpu_name[strcspn(cpu_name, "\n")] = 0; // Strip trailing newline
-                printf("CPU:     %s\n", cpu_name);
+                cpu_name += 2; // Skip colon and space
+                cpu_name[strcspn(cpu_name, "\n")] = 0;
+                strncpy(buffer, cpu_name, size);
                 break;
             }
         }
@@ -61,31 +54,75 @@ void print_cpu() {
     fclose(file);
 }
 
-void print_system() {
-    // Open the kernel release file provided by the virtual filesystem
-    FILE *kernel_file = fopen("/proc/sys/kernel/osrelease", "r");
-    char kernel_buffer[64] = "Unknown";
-
-    if (kernel_file != NULL) {
-        // Read the single line of text containing the version
-        if (fgets(kernel_buffer, sizeof(kernel_buffer), kernel_file) != NULL) {
-            // Strip the trailing newline character if it exists
-            kernel_buffer[strcspn(kernel_buffer, "\n")] = 0;
-        }
-        fclose(kernel_file);
+void get_memory(char *buffer, size_t size) {
+    FILE *file = fopen("/proc/meminfo", "r");
+    if (!file) {
+        strncpy(buffer, "Unknown", size);
+        return;
     }
+    char line[128];
+    long total_mem = 0, avail_mem = 0;
+    while (fgets(line, sizeof(line), file)) {
+        if (strncmp(line, "MemTotal:", 9) == 0) {
+            sscanf(line, "MemTotal: %ld", &total_mem);
+        } else if (strncmp(line, "MemAvailable:", 13) == 0) {
+            sscanf(line, "MemAvailable: %ld", &avail_mem);
+        }
+        if (total_mem && avail_mem) break;
+    }
+    fclose(file);
 
-    // Render our layout using standard ANSI escapes
-    // You can replace the simple OS logo with a custom ASCII layout later!
-    printf(COLOR_CYAN "  /\\_/\\   " COLOR_DEFAULT "OS:      MyCustomOS\n");
-    printf(COLOR_CYAN " ( o.o )  " COLOR_DEFAULT "Kernel:  %s\n", kernel_buffer);
-    printf(COLOR_CYAN "  > ^ <   " COLOR_DEFAULT "Shell:   bash (temporary)\n");
+    long used_mem = (total_mem - avail_mem) / 1024;
+    snprintf(buffer, size, "%ldMB / %ldMB", used_mem, total_mem / 1024);
+}
+
+void get_shell(char *buffer, size_t size) {
+    // getenv pulls the environmental variable pointer from the user session
+    char *shell_path = getenv("SHELL");
+
+    if (shell_path != NULL) {
+        // Find the last forward slash in "/bin/bash" -> "bash"
+        char *shell_name = strrchr(shell_path, '/');
+        
+        if (shell_name != NULL) {
+            // shell_name points to "/bash", so we add 1 to get just "bash"
+            strncpy(buffer, shell_name + 1, size - 1);
+        } else {
+            // Fallback if no slash was found in the environment string
+            strncpy(buffer, shell_path, size - 1);
+        }
+    } else {
+        // If getenv returned NULL, the variable doesn't exist
+        strncpy(buffer, "Unknown", size - 1);
+    }
+    
+    // Explicit null-termination guarantee for absolute C string safety
+    buffer[size - 1] = '\0';
 }
 
 int main() {
-    print_system();
-    print_memory();
-    print_uptime();
-    print_cpu();
+    // Buffers to store parsed strings
+    char kernel[64] = {0};
+    char uptime[32] = {0};
+    char cpu[128]  = {0};
+    char memory[64] = {0};
+    char shell[64] = {0};
+
+    // Run the parsers
+    get_kernel(kernel, sizeof(kernel));
+    get_uptime(uptime, sizeof(uptime));
+    get_cpu(cpu, sizeof(cpu));
+    get_memory(memory, sizeof(memory));
+    get_shell(shell, sizeof(shell));
+
+    // Print the unified side-by-side layout
+    printf(COLOR_CYAN " _     _   _______   _______  " COLOR_DEFAULT "OS:      uos\n");
+    printf(COLOR_CYAN "| |   | | |  ___  | |  _____| " COLOR_DEFAULT "Kernel:  %s\n", kernel);
+    printf(COLOR_CYAN "| |   | | | |   | | | |_____  " COLOR_DEFAULT "Uptime:  %s\n", uptime);
+    printf(COLOR_CYAN "| |   | | | |   | | |_____  | " COLOR_DEFAULT "Memory:  %s\n", memory);
+    printf(COLOR_CYAN "| |___| | | |___| |  _____| | " COLOR_DEFAULT "CPU:     %s\n", cpu);
+    printf(COLOR_CYAN " \\_____/  |_______| |_______| " COLOR_DEFAULT "Shell:  %s\n", shell);
+    printf("\n");
+
     return 0;
 }
