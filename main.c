@@ -121,7 +121,7 @@ int main() {
     printf(COLOR_CYAN "| |   | | | |   | | | |_____  " COLOR_DEFAULT "Uptime:  %s\n", uptime);
     printf(COLOR_CYAN "| |   | | | |   | | |_____  | " COLOR_DEFAULT "Memory:  %s\n", memory);
     printf(COLOR_CYAN "| |___| | | |___| |  _____| | " COLOR_DEFAULT "CPU:     %s\n", cpu);
-    printf(COLOR_CYAN " \\_____/  |_______| |_______| " COLOR_DEFAULT "Shell:  %s\n", shell);
+    printf(COLOR_CYAN " \\_____/  |_______| |_______| " COLOR_DEFAULT "Shell:   %s\n", shell);
     printf("\n");
 
     return 0;
